@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(python *)",
+      "Bash(py -m py_compile serial_mcp.py)",
+      "Bash(python3 -m py_compile serial_mcp.py)",
+      "Bash(where python *)",
+      "Bash(cmd.exe *)",
+      "Bash(powershell.exe -Command \"python -m py_compile serial_mcp.py 2>&1\")",
+      "Bash(powershell.exe *)",
+      "Bash(python3 server.py)",
+      "Bash(timeout 2 cd src/serial_mcp)",
+      "Bash(timeout 2 python3 -c \"import serial_mcp; print\\('Import successful'\\)\")",
+      "Bash(PYTHONPATH=src timeout 3 python3 -m serial_mcp.server)",
+      "Bash(pip3 install *)",
+      "Bash(timeout 2 serial-mcp)",
+      "Bash(timeout 2 python3 -m serial_mcp.server)",
+      "Bash(python3 *)",
+      "Bash(echo \"Command timed out or failed with code $?\")",
+      "Read(//c/Users/DELL/.claude/**)",
+      "Read(//e/code/SOFTAI/serial-mcp/%USERPROFILE%/.claude/**)",
+      "mcp__serial__serial_read",
+      "mcp__serial__serial_write",
+      "mcp__serial__serial_close",
+      "mcp__serial__serial_open",
+      "mcp__serial__serial_list_connections"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "serial"
+  ]
+}
