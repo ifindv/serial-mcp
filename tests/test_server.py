@@ -63,7 +63,7 @@ class TestConnectionManager:
             serial_port=mock_serial,
         )
 
-        assert info.id == "conn_1"
+        assert len(info.id) == 16
         assert info.port == "COM3"
         assert info.baud_rate == 9600
         assert info.is_open is True
@@ -71,11 +71,11 @@ class TestConnectionManager:
 
     def test_get_connection(self, manager, mock_serial):
         """Test retrieving a connection by ID."""
-        manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
+        info = manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
 
-        info = manager.get("conn_1")
-        assert info is not None
-        assert info.id == "conn_1"
+        retrieved = manager.get(info.id)
+        assert retrieved is not None
+        assert retrieved.id == info.id
 
     def test_get_nonexistent_connection(self, manager):
         """Test retrieving a nonexistent connection."""
@@ -84,16 +84,16 @@ class TestConnectionManager:
 
     def test_has_connection(self, manager, mock_serial):
         """Test checking if a connection exists."""
-        manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
+        info = manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
 
-        assert manager.has("conn_1") is True
+        assert manager.has(info.id) is True
         assert manager.has("conn_999") is False
 
     def test_remove_connection(self, manager, mock_serial):
         """Test removing a connection."""
-        manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
+        info = manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
 
-        removed = manager.remove("conn_1")
+        removed = manager.remove(info.id)
         assert removed is True
         assert manager.size() == 0
         mock_serial.close.assert_called_once()
@@ -118,6 +118,18 @@ class TestConnectionManager:
 
         assert manager.size() == 0
         mock_serial.close.assert_called_once()
+
+    def test_connection_limit(self, manager, mock_serial):
+        """Test that connection limit is enforced."""
+        from serial_mcp.server import MAX_CONNECTIONS
+
+        for i in range(MAX_CONNECTIONS):
+            manager.add(port=f"COM{i}", baud_rate=9600, path=f"COM{i}", serial_port=mock_serial)
+
+        assert manager.size() == MAX_CONNECTIONS
+
+        with pytest.raises(RuntimeError, match="Maximum number of connections"):
+            manager.add(port=f"COM{MAX_CONNECTIONS}", baud_rate=9600, path=f"COM{MAX_CONNECTIONS}", serial_port=mock_serial)
 
 
 class TestPydanticModels:
@@ -189,6 +201,32 @@ class TestPydanticModels:
         assert model.dtr is True
         assert model.rts is False
 
+    def test_write_data_input_valid_encoding(self):
+        """Test WriteDataInput with valid encodings."""
+        from serial_mcp.server import ALLOWED_ENCODINGS
+
+        for encoding in ALLOWED_ENCODINGS:
+            model = WriteDataInput(connection_id="conn_1", data="test", encoding=encoding)
+            assert model.encoding == encoding.lower()
+
+    def test_write_data_input_invalid_encoding(self):
+        """Test WriteDataInput with invalid encoding."""
+        with pytest.raises(ValueError, match="Encoding must be one of"):
+            WriteDataInput(connection_id="conn_1", data="test", encoding="invalid-encoding")
+
+    def test_read_data_input_valid_encoding(self):
+        """Test ReadDataInput with valid encodings."""
+        from serial_mcp.server import ALLOWED_ENCODINGS
+
+        for encoding in ALLOWED_ENCODINGS:
+            model = ReadDataInput(connection_id="conn_1", encoding=encoding)
+            assert model.encoding == encoding.lower()
+
+    def test_read_data_input_invalid_encoding(self):
+        """Test ReadDataInput with invalid encoding."""
+        with pytest.raises(ValueError, match="Encoding must be one of"):
+            ReadDataInput(connection_id="conn_1", encoding="invalid-encoding")
+
 
 class TestSerialTools:
     """Test serial tool functions."""
@@ -232,7 +270,8 @@ class TestSerialTools:
             params = OpenPortInput(port="COM3")
             result = await serial_open(params)
 
-            assert result == "Connection opened: conn_1"
+            assert result.startswith("Connection opened:")
+            assert len(result.split(": ")[1]) == 16
             mock_serial_class.assert_called_once()
 
     @pytest.mark.asyncio
@@ -251,12 +290,12 @@ class TestSerialTools:
     @pytest.mark.asyncio
     async def test_serial_close_success(self, mock_serial):
         """Test successfully closing a serial port."""
-        _connection_manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
+        info = _connection_manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
 
-        params = ClosePortInput(connection_id="conn_1")
+        params = ClosePortInput(connection_id=info.id)
         result = await serial_close(params)
 
-        assert result == "Connection closed: conn_1"
+        assert result == f"Connection closed: {info.id}"
 
     @pytest.mark.asyncio
     async def test_serial_close_not_found(self):
@@ -269,12 +308,12 @@ class TestSerialTools:
     @pytest.mark.asyncio
     async def test_serial_write_success(self, mock_serial):
         """Test successfully writing to a serial port."""
-        _connection_manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
+        info = _connection_manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
 
-        params = WriteDataInput(connection_id="conn_1", data="Hello")
+        params = WriteDataInput(connection_id=info.id, data="Hello")
         result = await serial_write(params)
 
-        assert result == "Wrote 12 bytes to conn_1"
+        assert result == f"Wrote 12 bytes to {info.id}"
         mock_serial.write.assert_called_once()
 
     @pytest.mark.asyncio
@@ -288,9 +327,9 @@ class TestSerialTools:
     @pytest.mark.asyncio
     async def test_serial_read_success(self, mock_serial):
         """Test successfully reading from a serial port."""
-        _connection_manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
+        info = _connection_manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
 
-        params = ReadDataInput(connection_id="conn_1")
+        params = ReadDataInput(connection_id=info.id)
         result = await serial_read(params)
 
         assert "Hello" in result
@@ -300,9 +339,9 @@ class TestSerialTools:
     async def test_serial_read_timeout(self, mock_serial):
         """Test reading with timeout."""
         mock_serial.read.return_value = b""
-        _connection_manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
+        info = _connection_manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
 
-        params = ReadDataInput(connection_id="conn_1", timeout=1.0)
+        params = ReadDataInput(connection_id=info.id, timeout=1.0)
         result = await serial_read(params)
 
         assert "timed out" in result
@@ -310,21 +349,21 @@ class TestSerialTools:
     @pytest.mark.asyncio
     async def test_serial_set_signals_success(self, mock_serial):
         """Test successfully setting signals."""
-        _connection_manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
+        info = _connection_manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
 
-        params = SetSignalsInput(connection_id="conn_1", dtr=True, rts=False)
+        params = SetSignalsInput(connection_id=info.id, dtr=True, rts=False)
         result = await serial_set_signals(params)
 
-        assert "Signals set on conn_1" in result
+        assert "Signals set" in result
         assert "DTR=HIGH" in result
         assert "RTS=LOW" in result
 
     @pytest.mark.asyncio
     async def test_serial_get_signals_success(self, mock_serial):
         """Test successfully getting signal states."""
-        _connection_manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
+        info = _connection_manager.add(port="COM3", baud_rate=9600, path="COM3", serial_port=mock_serial)
 
-        params = GetSignalsInput(connection_id="conn_1")
+        params = GetSignalsInput(connection_id=info.id)
         result = await serial_get_signals(params)
 
         assert "dtr" in result.lower()

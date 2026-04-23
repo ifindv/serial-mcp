@@ -8,6 +8,7 @@ opening/closing connections, reading/writing data, and controlling signals.
 
 import asyncio
 import json
+import secrets
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -18,11 +19,14 @@ from typing import Any, Dict, List, Optional, Set, TypedDict
 import serial as pyserial
 from serial.tools import list_ports
 from mcp.server.fastmcp import FastMCP, Context
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 # Constants
 CHARACTER_LIMIT = 25000
 MAX_READ_SIZE = 65536
+MAX_CONNECTIONS = 20
+
+ALLOWED_ENCODINGS = {"utf-8", "utf-8-sig", "ascii", "latin-1", "iso-8859-1", "cp1252"}
 
 
 class ResponseFormat(str, Enum):
@@ -51,7 +55,6 @@ class ConnectionInfo:
     serial_port: pyserial.Serial
     is_open: bool
     created_at: float
-    buffer: bytearray = field(default_factory=bytearray)
 
 
 class ConnectionManager:
@@ -59,12 +62,13 @@ class ConnectionManager:
 
     def __init__(self) -> None:
         self._connections: OrderedDict[str, ConnectionInfo] = OrderedDict()
-        self._counter = 0
 
     def add(self, port: str, baud_rate: int, path: str, serial_port: pyserial.Serial) -> ConnectionInfo:
-        """Add a new connection."""
-        self._counter += 1
-        conn_id = f"conn_{self._counter}"
+        """Add a new connection. Raises RuntimeError if max connections exceeded."""
+        if len(self._connections) >= MAX_CONNECTIONS:
+            raise RuntimeError(f"Maximum number of connections ({MAX_CONNECTIONS}) reached")
+
+        conn_id = secrets.token_hex(8)
         info = ConnectionInfo(
             id=conn_id,
             port=port,
@@ -210,6 +214,13 @@ class WriteDataInput(BaseModel):
     encoding: str = Field(default="utf-8", description="Text encoding (e.g., 'utf-8', 'ascii')", min_length=1)
     timeout: float = Field(default=5.0, description="Write timeout in seconds", ge=0.1, le=60.0)
 
+    @field_validator("encoding")
+    @classmethod
+    def validate_encoding(cls, v: str) -> str:
+        if v.lower() not in ALLOWED_ENCODINGS:
+            raise ValueError(f"Encoding must be one of: {', '.join(sorted(ALLOWED_ENCODINGS))}")
+        return v.lower()
+
 
 class ReadDataInput(BaseModel):
     """Input model for reading data from a serial port."""
@@ -223,6 +234,13 @@ class ReadDataInput(BaseModel):
         default=ResponseFormat.MARKDOWN,
         description="Output format: 'markdown' for human-readable or 'json' for machine-readable"
     )
+
+    @field_validator("encoding")
+    @classmethod
+    def validate_encoding(cls, v: str) -> str:
+        if v.lower() not in ALLOWED_ENCODINGS:
+            raise ValueError(f"Encoding must be one of: {', '.join(sorted(ALLOWED_ENCODINGS))}")
+        return v.lower()
 
 
 class SetSignalsInput(BaseModel):
