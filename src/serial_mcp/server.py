@@ -6,6 +6,8 @@ This server provides tools to interact with serial ports, including listing port
 opening/closing connections, reading/writing data, and controlling signals.
 """
 
+import os
+import argparse
 import asyncio
 import json
 import secrets
@@ -280,7 +282,7 @@ async def _lifespan(app: FastMCP):
     _connection_manager.clear()
 
 
-mcp = FastMCP("serial_mcp", lifespan=_lifespan)
+mcp = FastMCP("serial_mcp", lifespan=_lifespan, host="127.0.0.1", port=8001)
 
 
 @mcp.tool(name="serial_list_ports", annotations={"title": "List Serial Ports", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
@@ -704,10 +706,25 @@ async def serial_list_connections(params: ListConnectionsInput) -> str:
 
     return "\n".join(lines)
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="support stdio and streamable mode")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default=os.getenv("MCP_MODE", "stdio"),
+        choices=["stdio", "http"],
+        help="set mcp server run mode"
+    )
+    return parser.parse_args()
+
 
 def main() -> None:
     """Entry point for the serial-mcp CLI command."""
-    mcp.run()
+    args = parse_args()
+    if args.mode == "stdio":
+        mcp.run()
+    else:
+        mcp.run(transport="streamable-http")
 
 
 if __name__ == "__main__":
